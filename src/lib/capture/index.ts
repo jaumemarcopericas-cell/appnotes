@@ -1,4 +1,14 @@
 import * as chrono from "chrono-node";
+import {
+  etiquetaUnidad,
+  formatDuracion,
+  formatNum,
+  parseCalculo,
+  parseConversion,
+  parseDivision,
+  parseTemporizador,
+  TEMPORIZADOR_F,
+} from "./herramientas";
 
 /**
  * Captura rápida en español: clasifica una frase suelta ("recuérdame llamar a mamá mañana a las 9")
@@ -14,11 +24,48 @@ export const TIPOS = {
   pregunta: { emoji: "❓", etiqueta: "Pregunta" },
   enlace: { emoji: "🔗", etiqueta: "Enlace" },
   nota: { emoji: "📝", etiqueta: "Nota" },
+  calculo: { emoji: "🧮", etiqueta: "Cálculo" },
+  conversion: { emoji: "📏", etiqueta: "Conversión" },
+  dividir: { emoji: "💶", etiqueta: "Dividir" },
+  temporizador: { emoji: "⏲️", etiqueta: "Temporizador" },
 } as const;
 export type Tipo = keyof typeof TIPOS;
 
+/**
+ * Qué tiene que hacer el Atajo con la captura. Así el Atajo solo necesita un "If" por acción,
+ * no uno por tipo: recordatorio → Recordatorios, evento → Calendario, temporizador → Reloj,
+ * guardar → nota "Capturas", mostrar → solo la notificación (cuentas y conversiones).
+ */
+export type Accion = "recordatorio" | "evento" | "temporizador" | "guardar" | "mostrar";
+
+const ACCION: Record<Tipo, Accion> = {
+  recordatorio: "recordatorio",
+  evento: "evento",
+  temporizador: "temporizador",
+  calculo: "mostrar",
+  conversion: "mostrar",
+  dividir: "mostrar",
+  lista: "guardar",
+  gasto: "guardar",
+  pregunta: "guardar",
+  enlace: "guardar",
+  nota: "guardar",
+};
+
 /** Orden de desempate cuando dos tipos puntúan igual. */
-const PRIORIDAD: Tipo[] = ["enlace", "recordatorio", "evento", "gasto", "lista", "pregunta", "nota"];
+const PRIORIDAD: Tipo[] = [
+  "enlace",
+  "dividir",
+  "calculo",
+  "conversion",
+  "temporizador",
+  "recordatorio",
+  "evento",
+  "gasto",
+  "lista",
+  "pregunta",
+  "nota",
+];
 
 export const DEFAULT_TZ = "Europe/Madrid";
 /** Hora que se pone cuando el usuario da un día pero no una hora ("mañana", "el viernes"). */
@@ -26,6 +73,7 @@ const HORA_POR_DEFECTO = 9;
 
 export type Captura = {
   tipo: Tipo;
+  accion: Accion;
   emoji: string;
   etiqueta: string;
   titulo: string;
@@ -39,6 +87,11 @@ export type Captura = {
   tiene_hora: boolean;
   items: string[];
   importe: number | null;
+  /** Respuesta de cuentas, conversiones y repartos: "12", "8,05 km", "20 € cada uno". */
+  resultado: string | null;
+  /** Duración del temporizador (Atajos: "Start Timer" en minutos). */
+  segundos: number | null;
+  minutos: number | null;
   mensaje: string;
   fuente: "reglas" | "jev";
 };
@@ -213,9 +266,18 @@ export function scores(text: string, opts: CaptureOptions = {}): Record<Tipo, nu
   const f = fold(text).trim();
   const pasado = PASADO_F.test(f);
   const fecha = pasado ? null : findFecha(text, now, tz);
-  const s: Record<Tipo, number> = { recordatorio: 0, evento: 0, lista: 0, gasto: 0, pregunta: 0, enlace: 0, nota: pasado ? 4 : 1 };
+  const s = Object.fromEntries(Object.keys(TIPOS).map((k) => [k, 0])) as Record<Tipo, number>;
+  s.nota = pasado ? 4 : 1;
 
   if (URL.test(f)) s.enlace += 10;
+  if (parseDivision(text)) s.dividir += 9;
+  if (parseCalculo(text)) s.calculo += 8;
+  if (parseConversion(text)) s.conversion += 8;
+  if (parseTemporizador(text)) {
+    if (TEMPORIZADOR_F.test(f)) s.temporizador += 9;
+    // "pasta 12 min": frase corta con una duración y sin fecha.
+    else if (!fecha && f.split(/\s+/).length <= 3) s.temporizador += 5;
+  }
   if (RECORDAR_F.test(f)) s.recordatorio += 8;
   if (fecha) {
     s.recordatorio += 2;
@@ -258,9 +320,44 @@ export function buildCaptura(text: string, tipo: Tipo, opts: CaptureOptions & { 
 
   let items: string[] = [];
   let importe: number | null = null;
+  let resultado: string | null = null;
+  let segundos: number | null = null;
   let titulo: string;
+  /** Las herramientas dan un mensaje corto con la respuesta ("🧮 15% de 80 = 12"). */
+  let mensajeHerramienta: string | null = null;
+  const { emoji, etiqueta } = TIPOS[tipo];
 
   switch (tipo) {
+    case "calculo": {
+      const c = parseCalculo(original);
+      titulo = c?.expresion ?? original;
+      resultado = c ? formatNum(c.resultado) : null;
+      mensajeHerramienta = `${emoji} ${titulo} = ${resultado ?? "?"}`;
+      break;
+    }
+    case "conversion": {
+      const c = parseConversion(original);
+      titulo = c ? `${formatNum(c.valor)} ${etiquetaUnidad(c.de)} → ${etiquetaUnidad(c.a)}` : original;
+      resultado = c ? `${formatNum(c.resultado)} ${etiquetaUnidad(c.a)}` : null;
+      mensajeHerramienta = c ? `${emoji} ${formatNum(c.valor)} ${etiquetaUnidad(c.de)} = ${resultado}` : `${emoji} ${original}`;
+      break;
+    }
+    case "dividir": {
+      const d = parseDivision(original);
+      importe = d?.total ?? null;
+      titulo = d ? `${formatEuros(d.total)} entre ${d.personas}` : original;
+      resultado = d ? `${formatEuros(d.porPersona)} cada uno` : null;
+      mensajeHerramienta = `${emoji} ${titulo} = ${resultado ?? "?"}`;
+      break;
+    }
+    case "temporizador": {
+      const t = parseTemporizador(original);
+      segundos = t?.segundos ?? null;
+      titulo = t?.etiqueta || etiqueta;
+      resultado = segundos ? formatDuracion(segundos) : null;
+      mensajeHerramienta = `${emoji} ${titulo} — ${resultado ?? "?"}`;
+      break;
+    }
     case "lista": {
       const cuerpo = rest.trim().replace(LISTA_INICIO, "");
       items = cuerpo
@@ -287,15 +384,17 @@ export function buildCaptura(text: string, tipo: Tipo, opts: CaptureOptions & { 
       titulo = capitalize(original.replace(/^¿\s*/, "").replace(/\s*\?*$/, "")) + "?";
       break;
     default:
-      titulo = capitalize(tidyEs(rest)) || capitalize(original);
+      // "avísame en 10 minutos": sin la fecha y la palabra clave no queda nada.
+      titulo = capitalize(tidyEs(rest)) || (tipo === "recordatorio" ? "Aviso" : capitalize(original));
   }
 
-  const { emoji, etiqueta } = TIPOS[tipo];
   const fecha_texto = fecha ? textoFecha(tz, fecha.start, now) : null;
-  let mensaje = `${emoji} ${etiqueta}: ${titulo}`;
-  if (fecha_texto) mensaje += ` — ${fecha_texto}`;
-  if (items.length) mensaje += ` — ${items.join(", ")}`;
-  if (importe !== null) mensaje += ` — ${formatEuros(importe)}`;
+  let mensaje = mensajeHerramienta ?? `${emoji} ${etiqueta}: ${titulo}`;
+  if (!mensajeHerramienta) {
+    if (fecha_texto) mensaje += ` — ${fecha_texto}`;
+    if (items.length) mensaje += ` — ${items.join(", ")}`;
+    if (importe !== null) mensaje += ` — ${formatEuros(importe)}`;
+  }
 
   let fecha_local: string | null = null;
   if (fecha) {
@@ -305,6 +404,7 @@ export function buildCaptura(text: string, tipo: Tipo, opts: CaptureOptions & { 
 
   return {
     tipo,
+    accion: ACCION[tipo],
     emoji,
     etiqueta,
     titulo,
@@ -315,6 +415,9 @@ export function buildCaptura(text: string, tipo: Tipo, opts: CaptureOptions & { 
     tiene_hora: fecha?.hasTime ?? false,
     items,
     importe,
+    resultado,
+    segundos,
+    minutos: segundos === null ? null : Math.round((segundos / 60) * 100) / 100,
     mensaje,
     fuente: opts.fuente ?? "reglas",
   };

@@ -91,3 +91,50 @@ describe("capture: casos que antes fallaban", () => {
     expect(capture("hoy me he sentido muy cansado en el entreno", opts).tipo).toBe("nota");
   });
 });
+
+describe("capture: herramientas", () => {
+  const cases: [string, string, string][] = [
+    ["15% de 80", "calculo", "🧮 15% de 80 = 12"],
+    ["23*4+10", "calculo", "🧮 23 × 4+10 = 102"],
+    ["¿cuánto es 150 entre 3?", "calculo", "🧮 150 entre 3 = 50"],
+    ["100 € con IVA", "calculo", "🧮 100 € con IVA = 121"],
+    ["80 menos el 20%", "calculo", "🧮 80 menos el 20% = 64"],
+    ["1.500 + 250", "calculo", "🧮 1.500 + 250 = 1750"],
+    ["5 millas a km", "conversion", "📏 5 mi = 8,05 km"],
+    ["cuántos km son 10 millas", "conversion", "📏 10 mi = 16,09 km"],
+    ["30 grados a fahrenheit", "conversion", "📏 30 °C = 86 °F"],
+    ["80 € entre 4", "dividir", "💶 80 € entre 4 = 20 € cada uno"],
+    ["pagar la cena a medias 45 €", "dividir", "💶 45 € entre 2 = 22,50 € cada uno"],
+    ["90 € entre Ana, Luis y yo", "dividir", "💶 90 € entre 3 = 30 € cada uno"],
+    ["pasta 12 min", "temporizador", "⏲️ Pasta — 12 min"],
+    ["pon un temporizador de media hora para el horno", "temporizador", "⏲️ Horno — 30 min"],
+  ];
+  for (const [texto, tipo, mensaje] of cases) {
+    test(texto, () => {
+      const c = capture(texto, opts);
+      expect(c.tipo).toBe(tipo as typeof c.tipo);
+      expect(c.mensaje).toBe(mensaje);
+    });
+  }
+
+  test("el temporizador da los minutos para Atajos", () => {
+    const c = capture("temporizador 1 h 30 min", opts);
+    expect(c.accion).toBe("temporizador");
+    expect(c.minutos).toBe(90);
+    expect(c.segundos).toBe(5400);
+  });
+
+  test("acciones para el Atajo", () => {
+    expect(capture("15% de 80", opts).accion).toBe("mostrar");
+    expect(capture("recuérdame llamar a mamá mañana a las 9", opts).accion).toBe("recordatorio");
+    expect(capture("cena con Laura el viernes a las 21:30", opts).accion).toBe("evento");
+    expect(capture("comprar leche, huevos y pan", opts).accion).toBe("guardar");
+  });
+
+  test("no confunde frases normales con herramientas", () => {
+    expect(capture("30 € entre gasolina y peajes", opts).tipo).toBe("gasto");
+    expect(capture("tengo 2 m en mi casa", opts).tipo).toBe("nota");
+    expect(capture("sacar al perro a las 8", opts).tipo).toBe("recordatorio");
+    expect(capture("avísame en 10 minutos", opts).titulo).toBe("Aviso");
+  });
+});

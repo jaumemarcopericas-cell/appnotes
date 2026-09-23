@@ -1,84 +1,109 @@
 # Prototipo en iPhone: doble toque → apuntar
 
 Prototipo sin app nativa: un **Atajo** de iOS pide el texto, lo manda a `/api/capture`
-(clasifica en español) y lo guarda en Recordatorios, Calendario o Notas según el tipo.
+(entiende español) y hace lo que toque según el campo `accion` de la respuesta.
 
 ```
 Doble toque detrás → Atajo "Apuntar"
   → "¿Qué quieres apuntar?"
   → POST /api/capture  { text, tz }
-  → recordatorio → app Recordatorios (con alerta)
-    evento       → app Calendario
-    resto        → nota "Capturas" en Notas
-  → notificación: "⏰ Recordatorio: Llamar a mamá — mañana a las 9:00"
+  → accion = recordatorio  → app Reminders (con alerta)
+             evento        → app Calendar
+             temporizador  → Clock (Start Timer)
+             guardar       → nota "Capturas" en Notes
+             mostrar       → nada, solo la notificación (cuentas, conversiones, repartos)
+  → notificación con el mensaje
 ```
 
-## 1. Publicar la API
+Los nombres de las acciones están en inglés (iPhone en inglés).
 
-El iPhone necesita una URL pública, así que despliega este repo en **tu** cuenta de Vercel:
+## 1. API
 
-1. Crea un repo vacío en GitHub y sube este proyecto.
-2. En vercel.com → *Add New → Project* → importa el repo.
-3. En *Settings → Environment Variables* añade:
-   - `CAPTURE_TOKEN`: una contraseña larga inventada (protege tu endpoint).
-   - `TYPESAFE_API_KEY` (opcional): activa Jev cuando las reglas en español no reconocen nada.
+Desplegada en Vercel: `https://appnotes-ebon.vercel.app/api/capture`.
+Variables de entorno en Vercel: `CAPTURE_TOKEN` (obligatoria) y `TYPESAFE_API_KEY` (opcional, Jev).
 
-Tu endpoint quedará en `https://<tu-proyecto>.vercel.app/api/capture`.
+## 2. Fase 1 — Atajo mínimo
 
-> Para probar sin desplegar: con el iPhone y el PC en la misma wifi, arranca
-> `npx next dev -H 0.0.0.0` y usa `http://<IP-de-tu-PC>:3000/api/capture`.
+App **Shortcuts** → **+** → nombre **Apuntar**:
 
-## 2. Crear el Atajo (app Atajos → **+**)
+1. **Ask for Input** — Prompt `¿Qué quieres apuntar?`, tipo *Text*.
+2. **Get Contents of URL** (buscar `contents`; no es *Get Component of URL*)
+   - URL: `https://appnotes-ebon.vercel.app/api/capture`
+     (si aparece sola la variable *Ask for Input* en la URL, bórrala con ⌫ dos veces)
+   - Method **POST**
+   - Headers: `Authorization` = `Bearer <CAPTURE_TOKEN>`
+   - Request Body **JSON**: `text` = variable *Ask for Input*; `tz` = `Europe/Madrid`
+3. **Get Dictionary Value** — key `mensaje` in *Contents of URL*.
+4. **Show Notification** — texto: variable *Dictionary Value*.
 
-Nombre: **Apuntar**. Acciones, en orden:
+Asignar: **Settings → Accessibility → Touch → Back Tap → Double Tap → Apuntar**.
 
-1. **Solicitar entrada**: Texto. Pregunta: `¿Qué quieres apuntar?`
-2. **Obtener contenido de URL**
-   - URL: `https://<tu-proyecto>.vercel.app/api/capture`
-   - Método: **POST**
-   - Cabeceras: `Authorization` = `Bearer <tu CAPTURE_TOKEN>`
-   - Cuerpo de la solicitud: **JSON**
-     - `text` (Texto) = *Entrada proporcionada*
-     - `tz` (Texto) = `Europe/Madrid`
-3. **Obtener valor del diccionario**: clave `tipo` → renómbralo a *Tipo*.
-4. **Obtener valor del diccionario**: clave `titulo` (del *Contenido de la URL*) → *Titulo*.
-5. **Obtener valor del diccionario**: clave `fecha_local` → *Fecha*.
-6. **Obtener valor del diccionario**: clave `mensaje` → *Mensaje*.
-7. **Si** *Tipo* **es** `recordatorio`
-   - **Añadir nuevo recordatorio**: título *Titulo*, alerta *Fecha*.
-8. **Si no** → **Si** *Tipo* **es** `evento`
-   - **Añadir nuevo evento**: título *Titulo*, inicio *Fecha*.
-9. **Si no**
-   - **Añadir a nota**: *Mensaje* a la nota `Capturas` (créala antes en Notas).
-10. Al final (fuera de los *Si*): **Mostrar notificación** con *Mensaje*.
+## 3. Fase 2 — que haga cosas
 
-Si la hora sale mal en Recordatorios, cambia la clave `fecha_local` por `fecha` (ISO 8601).
+Crea antes en **Notes** una nota llamada `Capturas`.
 
-Opcional para el tipo `pregunta`: si tu iPhone tiene Apple Intelligence, añade la acción
-**Usar modelo** con *Titulo* y muestra la respuesta.
+Entre los pasos 3 y 4 añade más **Get Dictionary Value** (siempre sobre *Contents of URL*) y
+renombra cada resultado (tócalo → **Rename**):
 
-## 3. Asignarlo al doble toque
+| key | renombrar a |
+|---|---|
+| `accion` | Accion |
+| `titulo` | Titulo |
+| `fecha` | Fecha |
+| `minutos` | Minutos |
 
-Ajustes → Accesibilidad → Tocar → **Toque posterior** → **Doble toque** → *Apuntar*.
+Usa `fecha` (ISO), no `fecha_local`: con el iPhone en inglés `24/09` se leería como mes/día.
 
-## Qué devuelve la API
+Después:
+
+- **If** *Accion* **is** `recordatorio`
+  - **Add New Reminder** → *Titulo*, activa **Alert** → *Fecha*
+- **Otherwise** → **If** *Accion* **is** `evento`
+  - **Add New Event** → *Titulo*, **Starts** *Fecha*
+- **Otherwise** → **If** *Accion* **is** `temporizador`
+  - **Start Timer** → *Minutos* **minutes**
+- **Otherwise** → **If** *Accion* **is** `guardar`
+  - **Append to Note** → la variable del paso 3 (mensaje) → nota *Capturas*
+- (`mostrar` no necesita nada: la notificación ya lleva el resultado)
+
+**Show Notification** queda al final, fuera de los *If*.
+
+## Qué entiende
+
+| Escribes | tipo | accion | mensaje |
+|---|---|---|---|
+| recuérdame llamar a mamá mañana a las 9 | recordatorio | recordatorio | ⏰ Recordatorio: Llamar a mamá — mañana a las 9:00 |
+| cena con Laura el viernes a las 21:30 | evento | evento | 📅 Evento: Cena con Laura — … a las 21:30 |
+| comprar leche, huevos y pan | lista | guardar | 🛒 Lista: Lista de la compra — Leche, Huevos, Pan |
+| gasté 12,50 € en gasolina | gasto | guardar | 💸 Gasto: Gasolina — 12,50 € |
+| ¿cuánto dura el pasaporte? | pregunta | guardar | ❓ Pregunta: … |
+| 15% de 80 · 100 € con IVA · 23*4+10 | calculo | mostrar | 🧮 15% de 80 = 12 |
+| 5 millas a km · cuántos km son 10 millas | conversion | mostrar | 📏 5 mi = 8,05 km |
+| 80 € entre 4 · cena a medias 45 € | dividir | mostrar | 💶 80 € entre 4 = 20 € cada uno |
+| pasta 12 min · temporizador media hora | temporizador | temporizador | ⏲️ Pasta — 12 min |
+
+## Respuesta completa
 
 ```json
 {
-  "tipo": "recordatorio",
-  "emoji": "⏰",
-  "titulo": "Llamar a mamá",
-  "fecha": "2026-09-24T09:00:00+02:00",
-  "fecha_local": "24/09/2026 09:00",
-  "fecha_texto": "mañana a las 9:00",
-  "tiene_hora": true,
+  "tipo": "temporizador",
+  "accion": "temporizador",
+  "emoji": "⏲️",
+  "titulo": "Pasta",
+  "fecha": null,
+  "fecha_local": null,
+  "fecha_texto": null,
+  "tiene_hora": false,
   "items": [],
   "importe": null,
-  "mensaje": "⏰ Recordatorio: Llamar a mamá — mañana a las 9:00",
+  "resultado": "12 min",
+  "segundos": 720,
+  "minutos": 12,
+  "mensaje": "⏲️ Pasta — 12 min",
   "fuente": "reglas"
 }
 ```
 
-Tipos: `recordatorio`, `evento`, `lista` (con `items`), `gasto` (con `importe`), `pregunta`,
-`enlace`, `nota`. Las reglas están en `src/lib/capture/index.ts` y los ejemplos en
-`src/lib/__tests__/capture.test.ts`.
+Reglas: `src/lib/capture/index.ts` (clasificación) y `src/lib/capture/herramientas.ts`
+(calculadora, conversor, dividir, temporizador). Ejemplos en `src/lib/__tests__/capture.test.ts`.
+Medir aciertos: `bun scripts/laya/reglas.ts scripts/laya/frases-nuevas.json`.
