@@ -72,3 +72,22 @@ describe("capture: tipo y datos", () => {
     expect(c.fecha).toBeNull();
   });
 });
+
+describe("capture: casos que antes fallaban", () => {
+  test("he quedado… es un plan, no pasado", () => {
+    expect(capture("he quedado con Pedro la semana que viene", opts).tipo).toBe("evento");
+  });
+  test("un gasto de ayer no es un evento", () => {
+    const c = capture("45 euros de la cena de ayer", opts);
+    expect(c.tipo).toBe("gasto");
+    expect(c.importe).toBe(45);
+  });
+  test("importe periódico sin €", () => {
+    const c = capture("netflix 13,99 al mes", opts);
+    expect(c.tipo).toBe("gasto");
+    expect(c.importe).toBe(13.99);
+  });
+  test("algo que ya pasó es una nota", () => {
+    expect(capture("hoy me he sentido muy cansado en el entreno", opts).tipo).toBe("nota");
+  });
+});

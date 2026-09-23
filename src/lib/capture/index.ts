@@ -181,21 +181,26 @@ export function tidyEs(s: string) {
 const RECORDAR = /(^|\s)(?:por favor\s+)?(?:recu[eé]rdame|recordarme|recordatorio:?|no olvidar|no te olvides(?:\s+de)?|no olvides|que no se me olvide|acu[eé]rdate(?:\s+de)?|av[ií]same(?:\s+(?:de|para))?|remind me(?:\s+to)?)(?=\s|$|:)/giu;
 const RECORDAR_F = /\b(recuerdame|recordarme|recordatorio|no olvid|no te olvides|que no se me olvide|acuerdate|avisame|remind me)/;
 const VERBO_ACCION = /^(?:tengo que |hay que )?(llamar|pagar|enviar|mandar|escribir|comprar|recoger|llevar|devolver|renovar|pedir|reservar|tomar|sacar|preparar|entregar|revisar|contestar|responder|ir)\b/;
-const EVENTO_F = /\b(cena|cenar|comida|comer|almuerzo|desayuno|cafe|reunion|quedada|quedar|quedamos|cita|cumple|cumpleanos|fiesta|boda|partido|concierto|clase|entreno|medico|dentista|vuelo|viaje|examen|entrevista)\b/;
+const EVENTO_F = /\b(cena|cenar|comida|comer|almuerzo|desayuno|cafe|reunion|quedada|quedado|quedar|quedamos|cita|cumple|cumpleanos|fiesta|boda|partido|concierto|clase|entreno|medico|dentista|vuelo|viaje|examen|entrevista)\b/;
 const LISTA_INICIO = /^(?:lista(?: de la compra)?|la compra|tengo que comprar|hay que comprar|comprar|compra)(?![a-zñ])\s*:?\s*/i;
 const GASTO_VERBO = /(^|\s)(?:he\s+)?(?:gast[eé]|gastado|pagu[eé]|pagado|me ha costado|me cost[oó]|cost[oó]|gasto:?)(?=\s|$)/giu;
 const GASTO_VERBO_F = /\b(gaste|gastado|pague|pagado|costo|costado|gasto)\b/;
+/** "netflix 13,99 al mes": un importe periódico es un gasto aunque no lleve €. */
+const GASTO_PERIODO_F = /\b(al mes|mensual|al ano|anual|suscripcion|cuota)\b/;
+/** Algo que ya pasó no es un plan: "ayer", "fui", "me he sentido". "He quedado" sí es un plan. */
+const PASADO_F = /\b(ayer|anoche|anteayer|la semana pasada|el otro dia|fui|estuve|tuve)\b|\b(?:he|has|ha|hemos|han)\s+(?!quedado\b)[a-z]+(?:ado|ido)\b/;
 const IMPORTE = /(\d+(?:[.,]\d{1,2})?)\s*(?:€|eur(?:os?)?\b)|€\s*(\d+(?:[.,]\d{1,2})?)/i;
 const URL = /https?:\/\/\S+|www\.\S+|\b[a-z0-9-]+\.(?:com|es|dev|io|app|org|net|ai)\b\S*/i;
 const PREGUNTA_INICIO = /^(que|como|por que|cuando|donde|quien|cual|cuanto|cuanta|cuantos|cuantas|puedo|se puede|deberia|merece la pena)\b/;
 
 function findImporte(text: string) {
   const m = IMPORTE.exec(text);
-  if (m) return { value: Number((m[1] ?? m[2]).replace(",", ".")), index: m.index, length: m[0].length };
-  // "gasté 12 en gasolina": un número suelto solo cuenta si hay verbo de gasto.
-  if (GASTO_VERBO_F.test(fold(text))) {
+  if (m) return { value: Number((m[1] ?? m[2]).replace(",", ".")), index: m.index, length: m[0].length, moneda: true };
+  // "gasté 12 en gasolina": un número suelto solo cuenta si hay verbo de gasto o es periódico.
+  const f = fold(text);
+  if (GASTO_VERBO_F.test(f) || GASTO_PERIODO_F.test(f)) {
     const n = /\b(\d+(?:[.,]\d{1,2})?)\b/.exec(text);
-    if (n) return { value: Number(n[1].replace(",", ".")), index: n.index, length: n[0].length };
+    if (n) return { value: Number(n[1].replace(",", ".")), index: n.index, length: n[0].length, moneda: false };
   }
   return null;
 }
@@ -206,8 +211,9 @@ export function scores(text: string, opts: CaptureOptions = {}): Record<Tipo, nu
   const now = opts.now ?? new Date();
   const tz = validTz(opts.tz);
   const f = fold(text).trim();
-  const fecha = findFecha(text, now, tz);
-  const s: Record<Tipo, number> = { recordatorio: 0, evento: 0, lista: 0, gasto: 0, pregunta: 0, enlace: 0, nota: 1 };
+  const pasado = PASADO_F.test(f);
+  const fecha = pasado ? null : findFecha(text, now, tz);
+  const s: Record<Tipo, number> = { recordatorio: 0, evento: 0, lista: 0, gasto: 0, pregunta: 0, enlace: 0, nota: pasado ? 4 : 1 };
 
   if (URL.test(f)) s.enlace += 10;
   if (RECORDAR_F.test(f)) s.recordatorio += 8;
@@ -221,7 +227,8 @@ export function scores(text: string, opts: CaptureOptions = {}): Record<Tipo, nu
   const seps = (f.match(/,|;|\n|\sy\s/g) ?? []).length;
   if (seps >= 2) s.lista += 4;
   else if (seps === 1 && s.lista > 0) s.lista += 2;
-  if (findImporte(text)) s.gasto += 4;
+  const importe = findImporte(text);
+  if (importe) s.gasto += importe.moneda ? 5 : 4;
   if (GASTO_VERBO_F.test(f)) s.gasto += 4;
   if (/\?\s*$/.test(f) || text.trim().startsWith("¿")) s.pregunta += 6;
   else if (PREGUNTA_INICIO.test(f)) s.pregunta += 4;
