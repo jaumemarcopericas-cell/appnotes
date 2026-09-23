@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import type { RespuestaAtajo } from "@/lib/capture";
 import { probarFrase } from "./actions";
 
@@ -25,34 +25,52 @@ const QUE_HARIA: Record<string, string> = {
   mostrar: "Solo muestra el resultado en la notificación",
 };
 
+// Historial en localStorage como store externo: el servidor pinta la lista vacía y el cliente la
+// rellena sin setState en un efecto. Si no hay almacenamiento (modo privado), vive en memoria.
 const HISTORIAL_KEY = "apuntar:probar:historial";
+const oyentes = new Set<() => void>();
+let enMemoria = "[]";
 
-function leerHistorial(): RespuestaAtajo[] {
+function suscribir(cb: () => void) {
+  oyentes.add(cb);
+  return () => oyentes.delete(cb);
+}
+
+function leerHistorial(): string {
   try {
-    const raw = localStorage.getItem(HISTORIAL_KEY);
-    return raw ? (JSON.parse(raw) as RespuestaAtajo[]) : [];
+    return localStorage.getItem(HISTORIAL_KEY) ?? "[]";
   } catch {
-    return [];
+    return enMemoria;
   }
 }
 
 function guardarHistorial(h: RespuestaAtajo[]) {
+  enMemoria = JSON.stringify(h.slice(0, 20));
   try {
-    localStorage.setItem(HISTORIAL_KEY, JSON.stringify(h.slice(0, 20)));
+    localStorage.setItem(HISTORIAL_KEY, enMemoria);
   } catch {
-    // Sin almacenamiento (modo privado): el historial vive solo en esta pestaña.
+    // Sin almacenamiento: nos quedamos con la copia en memoria.
+  }
+  oyentes.forEach((o) => o());
+}
+
+function parseHistorial(raw: string): RespuestaAtajo[] {
+  try {
+    const h = JSON.parse(raw);
+    return Array.isArray(h) ? h : [];
+  } catch {
+    return [];
   }
 }
 
 export function Probar() {
   const [texto, setTexto] = useState("");
   const [actual, setActual] = useState<RespuestaAtajo | null>(null);
-  const [historial, setHistorial] = useState<RespuestaAtajo[]>([]);
+  const raw = useSyncExternalStore(suscribir, leerHistorial, () => "[]");
+  const historial = useMemo(() => parseHistorial(raw), [raw]);
   const [verJson, setVerJson] = useState(false);
   const [pending, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => setHistorial(leerHistorial()), []);
 
   function enviar(frase: string) {
     if (!frase.trim()) return;
@@ -62,11 +80,7 @@ export function Probar() {
       if (!r) return;
       setActual(r);
       setTexto("");
-      setHistorial((prev) => {
-        const next = [r, ...prev.filter((p) => p.texto !== r.texto)];
-        guardarHistorial(next);
-        return next;
-      });
+      guardarHistorial([r, ...parseHistorial(leerHistorial()).filter((p) => p.texto !== r.texto)]);
       inputRef.current?.focus();
     });
   }
@@ -161,10 +175,7 @@ export function Probar() {
             <button
               type="button"
               className="text-xs text-muted-foreground underline"
-              onClick={() => {
-                setHistorial([]);
-                guardarHistorial([]);
-              }}
+              onClick={() => guardarHistorial([])}
             >
               Borrar
             </button>
