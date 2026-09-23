@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { buildCaptura, classify, type Tipo } from "@/lib/capture";
+import { buildCaptura, classify, respuestaAtajo, type Tipo } from "@/lib/capture";
 import { classifierMode, classifyWithJev } from "@/lib/jev/client";
 import type { IntentKey } from "@/lib/jev/types";
 
@@ -36,11 +36,11 @@ export async function POST(request: Request) {
     try {
       const jev = await classifyWithJev(text, request.signal);
       const tipo = DESDE_JEV[jev.intent.value];
-      if (tipo && jev.intent.confidence >= 0.7) return Response.json(buildCaptura(text, tipo, { tz, fuente: "jev" }));
+      if (tipo && jev.intent.confidence >= 0.7) return Response.json(respuestaAtajo(buildCaptura(text, tipo, { tz, fuente: "jev" })));
     } catch (err) {
       console.warn(`[capture] Jev falló, uso reglas: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
-  return Response.json(buildCaptura(text, reglas.tipo, { tz }));
+  return Response.json(respuestaAtajo(buildCaptura(text, reglas.tipo, { tz })));
 }

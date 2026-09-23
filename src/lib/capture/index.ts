@@ -6,6 +6,8 @@ import {
   parseCalculo,
   parseConversion,
   parseDivision,
+  parseMensaje,
+  parseRuta,
   parseTemporizador,
   TEMPORIZADOR_F,
 } from "./herramientas";
@@ -28,20 +30,25 @@ export const TIPOS = {
   conversion: { emoji: "📏", etiqueta: "Conversión" },
   dividir: { emoji: "💶", etiqueta: "Dividir" },
   temporizador: { emoji: "⏲️", etiqueta: "Temporizador" },
+  mensaje: { emoji: "💬", etiqueta: "Mensaje" },
+  ruta: { emoji: "🗺️", etiqueta: "Ruta" },
 } as const;
 export type Tipo = keyof typeof TIPOS;
 
 /**
  * Qué tiene que hacer el Atajo con la captura. Así el Atajo solo necesita un "If" por acción,
  * no uno por tipo: recordatorio → Recordatorios, evento → Calendario, temporizador → Reloj,
- * guardar → nota "Capturas", mostrar → solo la notificación (cuentas y conversiones).
+ * abrir → abre `url` (mensaje ya escrito, ruta en Mapas), guardar → nota "Capturas",
+ * mostrar → solo la notificación (cuentas y conversiones).
  */
-export type Accion = "recordatorio" | "evento" | "temporizador" | "guardar" | "mostrar";
+export type Accion = "recordatorio" | "evento" | "temporizador" | "abrir" | "guardar" | "mostrar";
 
 const ACCION: Record<Tipo, Accion> = {
   recordatorio: "recordatorio",
   evento: "evento",
   temporizador: "temporizador",
+  mensaje: "abrir",
+  ruta: "abrir",
   calculo: "mostrar",
   conversion: "mostrar",
   dividir: "mostrar",
@@ -55,6 +62,8 @@ const ACCION: Record<Tipo, Accion> = {
 /** Orden de desempate cuando dos tipos puntúan igual. */
 const PRIORIDAD: Tipo[] = [
   "enlace",
+  "mensaje",
+  "ruta",
   "dividir",
   "calculo",
   "conversion",
@@ -92,6 +101,10 @@ export type Captura = {
   /** Duración del temporizador (Atajos: "Start Timer" en minutos). */
   segundos: number | null;
   minutos: number | null;
+  /** Destinatario de un mensaje ("Marta"). */
+  contacto: string | null;
+  /** Lo que el Atajo abre con accion "abrir": WhatsApp/Mensajes con el texto, o Mapas. */
+  url: string | null;
   mensaje: string;
   fuente: "reglas" | "jev";
 };
@@ -270,6 +283,8 @@ export function scores(text: string, opts: CaptureOptions = {}): Record<Tipo, nu
   s.nota = pasado ? 4 : 1;
 
   if (URL.test(f)) s.enlace += 10;
+  if (parseMensaje(text)) s.mensaje += 9;
+  if (parseRuta(text)) s.ruta += 9;
   if (parseDivision(text)) s.dividir += 9;
   if (parseCalculo(text)) s.calculo += 8;
   if (parseConversion(text)) s.conversion += 8;
@@ -313,21 +328,45 @@ export function buildCaptura(text: string, tipo: Tipo, opts: CaptureOptions & { 
   const tz = validTz(opts.tz);
   const original = text.replace(/\s+/g, " ").trim();
   const usaFecha = tipo === "recordatorio" || tipo === "evento";
-  const fecha = usaFecha ? findFecha(original, now, tz) : null;
+  const encontrada = usaFecha ? findFecha(original, now, tz) : null;
 
-  let rest = fecha ? removeRange(original, fecha.index, fecha.text.length) : original;
+  let rest = encontrada ? removeRange(original, encontrada.index, encontrada.text.length) : original;
   rest = rest.replace(RECORDAR, " ");
+
+  // "recuérdame comprar pan": un recordatorio siempre avisa; sin fecha, dentro de una hora.
+  const fecha: Pick<Fecha, "start" | "hasTime"> | null =
+    encontrada ?? (tipo === "recordatorio" ? { start: dentroDeUnaHora(now), hasTime: false } : null);
 
   let items: string[] = [];
   let importe: number | null = null;
   let resultado: string | null = null;
   let segundos: number | null = null;
+  let contacto: string | null = null;
+  let url: string | null = null;
   let titulo: string;
   /** Las herramientas dan un mensaje corto con la respuesta ("🧮 15% de 80 = 12"). */
   let mensajeHerramienta: string | null = null;
   const { emoji, etiqueta } = TIPOS[tipo];
 
   switch (tipo) {
+    case "mensaje": {
+      const m = parseMensaje(original);
+      contacto = m?.contacto ?? null;
+      url = m?.url ?? null;
+      resultado = m?.texto ?? null;
+      titulo = m ? `Para ${m.contacto}` : original;
+      mensajeHerramienta = m
+        ? `${emoji} Para ${m.contacto}${m.canal === "whatsapp" ? " (WhatsApp)" : ""}: ${m.texto}`
+        : `${emoji} ${original}`;
+      break;
+    }
+    case "ruta": {
+      const r = parseRuta(original);
+      url = r?.url ?? null;
+      titulo = r?.destino ?? original;
+      mensajeHerramienta = `${emoji} Ruta a ${titulo}`;
+      break;
+    }
     case "calculo": {
       const c = parseCalculo(original);
       titulo = c?.expresion ?? original;
@@ -404,7 +443,8 @@ export function buildCaptura(text: string, tipo: Tipo, opts: CaptureOptions & { 
 
   return {
     tipo,
-    accion: ACCION[tipo],
+    // Un evento sin fecha no se puede poner en el Calendario: se guarda como nota.
+    accion: tipo === "evento" && !fecha ? "guardar" : ACCION[tipo],
     emoji,
     etiqueta,
     titulo,
@@ -418,6 +458,8 @@ export function buildCaptura(text: string, tipo: Tipo, opts: CaptureOptions & { 
     resultado,
     segundos,
     minutos: segundos === null ? null : Math.round((segundos / 60) * 100) / 100,
+    contacto,
+    url,
     mensaje,
     fuente: opts.fuente ?? "reglas",
   };
@@ -425,4 +467,39 @@ export function buildCaptura(text: string, tipo: Tipo, opts: CaptureOptions & { 
 
 export function capture(text: string, opts: CaptureOptions = {}): Captura {
   return buildCaptura(text, classify(text, opts).tipo, opts);
+}
+
+/** Próximo cuarto de hora pasada una hora: 18:07 → 19:15. */
+function dentroDeUnaHora(now: Date) {
+  const q = 15 * 60_000;
+  return new Date(Math.ceil((now.getTime() + 60 * 60_000) / q) * q);
+}
+
+// ── Respuesta para el Atajo ──────────────────────────────────
+
+/**
+ * Lo que devuelve /api/capture. Dos diferencias con Captura, las dos por el editor de Atajos:
+ *
+ * - Los campos null no se envían: "Get Dictionary Value" de una clave que no existe no devuelve
+ *   nada, mientras que un null de JSON puede colarse como valor.
+ * - Una clave `si_<accion>` por acción, presente solo cuando toca. El editor casi siempre ofrece
+ *   la condición "has any value" y muchas veces esconde "is", así que el Atajo puede decidir
+ *   sin comparar textos: If [si_temporizador] has any value → Start Timer.
+ */
+export type RespuestaAtajo = Partial<Captura> & {
+  si_recordatorio?: string;
+  si_evento?: string;
+  si_temporizador?: number;
+  si_abrir?: string;
+  si_guardar?: string;
+};
+
+export function respuestaAtajo(c: Captura): RespuestaAtajo {
+  const out: Record<string, unknown> = Object.fromEntries(Object.entries(c).filter(([, v]) => v !== null));
+  if (c.accion === "recordatorio" && c.fecha) out.si_recordatorio = c.fecha;
+  if (c.accion === "evento" && c.fecha) out.si_evento = c.fecha;
+  if (c.accion === "temporizador" && c.minutos) out.si_temporizador = c.minutos;
+  if (c.accion === "abrir" && c.url) out.si_abrir = c.url;
+  if (c.accion === "guardar") out.si_guardar = c.mensaje;
+  return out as RespuestaAtajo;
 }

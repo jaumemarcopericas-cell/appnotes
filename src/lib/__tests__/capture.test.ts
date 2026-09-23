@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { capture } from "@/lib/capture";
+import { capture, respuestaAtajo } from "@/lib/capture";
 
 // Miércoles 23 sep 2026, 18:00 en Madrid (UTC+2).
 const now = new Date("2026-09-23T16:00:00Z");
@@ -136,5 +136,61 @@ describe("capture: herramientas", () => {
     expect(capture("tengo 2 m en mi casa", opts).tipo).toBe("nota");
     expect(capture("sacar al perro a las 8", opts).tipo).toBe("recordatorio");
     expect(capture("avísame en 10 minutos", opts).titulo).toBe("Aviso");
+  });
+});
+
+describe("capture: mensajes y rutas", () => {
+  test("mensaje por SMS/iMessage con el texto ya escrito", () => {
+    const c = capture("dile a Marta que llego 10 min tarde", opts);
+    expect(c.tipo).toBe("mensaje");
+    expect(c.accion).toBe("abrir");
+    expect(c.contacto).toBe("Marta");
+    expect(c.url).toBe("sms:&body=Llego%2010%20min%20tarde");
+    expect(c.mensaje).toBe("💬 Para Marta: Llego 10 min tarde");
+  });
+
+  test("mensaje por WhatsApp", () => {
+    const c = capture("manda un whatsapp a Pablo que ya estoy abajo", opts);
+    expect(c.url).toBe("whatsapp://send?text=Ya%20estoy%20abajo");
+    expect(c.mensaje).toBe("💬 Para Pablo (WhatsApp): Ya estoy abajo");
+  });
+
+  test("un recordatorio de decir algo no es un mensaje", () => {
+    expect(capture("recuérdame decirle a Marta que traiga las llaves", opts).tipo).toBe("recordatorio");
+    expect(capture("mandar el informe a Carlos mañana", opts).tipo).toBe("recordatorio");
+  });
+
+  test("ruta en Mapas", () => {
+    const c = capture("¿cómo voy a la estación de Sants?", opts);
+    expect(c.tipo).toBe("ruta");
+    expect(c.url).toBe("https://maps.apple.com/?daddr=la%20estaci%C3%B3n%20de%20Sants");
+  });
+});
+
+describe("respuestaAtajo", () => {
+  test("solo la clave si_ de la acción que toca, y sin nulls", () => {
+    const r = respuestaAtajo(capture("pasta 12 min", opts));
+    expect(r.si_temporizador).toBe(12);
+    expect(r.si_recordatorio).toBeUndefined();
+    expect(r.si_guardar).toBeUndefined();
+    expect("fecha" in r).toBe(false);
+  });
+
+  test("un recordatorio sin fecha avisa dentro de una hora", () => {
+    const r = respuestaAtajo(capture("recuérdame comprar pan", opts));
+    // 18:00 en Madrid + 1 h → 19:00
+    expect(r.si_recordatorio).toBe("2026-09-23T19:00:00+02:00");
+  });
+
+  test("un evento sin fecha se guarda como nota", () => {
+    const r = respuestaAtajo(capture("cena con Laura", opts));
+    expect(r.accion).toBe("guardar");
+    expect(r.si_evento).toBeUndefined();
+    expect(r.si_guardar).toBe("📅 Evento: Cena con Laura");
+  });
+
+  test("las cuentas solo se muestran", () => {
+    const r = respuestaAtajo(capture("15% de 80", opts));
+    expect(Object.keys(r).filter((k) => k.startsWith("si_"))).toEqual([]);
   });
 });

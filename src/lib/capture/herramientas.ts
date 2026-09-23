@@ -214,6 +214,56 @@ export function parseTemporizador(text: string): Temporizador | null {
   return { segundos: Math.round(segundos), etiqueta: bonita ? bonita.charAt(0).toUpperCase() + bonita.slice(1) : "" };
 }
 
+// ── Mensajes ─────────────────────────────────────────────────
+
+/**
+ * "dile a Marta que llego tarde" → abre WhatsApp o Mensajes con el texto ya escrito.
+ * No enviamos nada: el usuario elige el chat y pulsa enviar, así un error de interpretación no sale solo.
+ */
+export type Mensaje = { contacto: string; texto: string; canal: "whatsapp" | "sms"; url: string };
+
+const SEPARADOR = "(?:\\s*:\\s*|\\s+diciendo(?:le)?\\s+que\\s+|\\s+que\\s+)";
+const MENSAJE_RES = [
+  /^(?:por favor\s+)?(?:dile|d[ií]gale|decirle|di)\s+a\s+(.+?)\s+que\s+(.+)$/iu,
+  new RegExp(
+    `^(?:manda(?:r|le)?|env[ií]a(?:r|le)?|escr[ií]be(?:le)?|escribir)\\s+(?:un\\s+)?(?:mensaje|whatsapp|wasap|sms|texto)?\\s*(?:a|para)\\s+(.+?)${SEPARADOR}(.+)$`,
+    "iu",
+  ),
+  new RegExp(`^(?:mensaje|whatsapp|wasap|sms)\\s+(?:a|para)\\s+(.+?)${SEPARADOR}(.+)$`, "iu"),
+];
+
+const titleCase = (s: string) => s.replace(/(^|\s)(\p{L})/gu, (_, sp: string, c: string) => sp + c.toUpperCase());
+
+export function parseMensaje(text: string): Mensaje | null {
+  const t = text.replace(/\s+/g, " ").trim();
+  for (const re of MENSAJE_RES) {
+    const m = re.exec(t);
+    if (!m) continue;
+    const contacto = titleCase(m[1].trim());
+    const cuerpo = m[2].trim();
+    const texto = cuerpo.charAt(0).toUpperCase() + cuerpo.slice(1);
+    const canal = /whats?app|wasap|guasap|\bwsp\b/i.test(t) ? "whatsapp" : "sms";
+    const enc = encodeURIComponent(texto);
+    const url = canal === "whatsapp" ? `whatsapp://send?text=${enc}` : `sms:&body=${enc}`;
+    return { contacto, texto, canal, url };
+  }
+  return null;
+}
+
+// ── Rutas ────────────────────────────────────────────────────
+
+export type Ruta = { destino: string; url: string };
+
+const RUTA_RE =
+  /^(?:c[oó]mo\s+(?:llego|voy|ir|se va|se llega)|ruta|ll[eé]vame|navega(?:r)?|direcci[oó]n(?:es)?|indicaciones)\s+(?:a|al|hasta|para ir a|para)\s+(.+?)\s*\??$/iu;
+
+export function parseRuta(text: string): Ruta | null {
+  const m = RUTA_RE.exec(text.replace(/[¿]/g, "").replace(/\s+/g, " ").trim());
+  if (!m) return null;
+  const destino = m[1].trim();
+  return { destino, url: `https://maps.apple.com/?daddr=${encodeURIComponent(destino)}` };
+}
+
 export function formatDuracion(segundos: number) {
   const h = Math.floor(segundos / 3600);
   const m = Math.floor((segundos % 3600) / 60);
