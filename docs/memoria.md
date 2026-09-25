@@ -33,6 +33,16 @@ si "mañana" fuera una persona.
 Da igual escribir con o sin acentos o mayúsculas, y aguanta una errata ("camarrero").
 Una frase corta (hasta 4 palabras) que coincide con algo guardado se trata como pregunta.
 
+## Olvidar
+
+| Escribes | Qué hace |
+|---|---|
+| olvida a Luis | 🗑️ borra a Luis |
+| borra lo del Bar Pepe | 🗑️ borra a todos los del Bar Pepe |
+
+Solo borra lo que coincide en **todas** las palabras: "olvida a Luis" no se lleva a Luisa, y si
+no encuentra nada lo dice y no toca nada.
+
 ## Conectar la base de datos (una vez, 3 minutos)
 
 Sin base de datos la API contesta *"⚠️ No se ha guardado: falta conectar la base de datos"*.

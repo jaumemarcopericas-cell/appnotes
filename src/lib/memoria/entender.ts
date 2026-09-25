@@ -30,6 +30,14 @@ export function esBusqueda(text: string) {
   return BUSCAR_F.test(fold(text));
 }
 
+/** "olvida a Luis", "borra lo del Bar Pepe", "elimina a Joan de Cadaqués". */
+const OLVIDAR = /^(?:olvida(?:te)?(?: de)?|borra|elimina|quita)\s+(?:a\s+|lo\s+de(?:l)?\s+|lo\s+|el\s+|la\s+)?(.+)$/iu;
+
+export function temaOlvido(text: string): string | null {
+  const m = OLVIDAR.exec(text.replace(/[¿?.!]/g, "").replace(/\s+/g, " ").trim());
+  return m ? m[1].trim() : null;
+}
+
 /** "¿cómo se llamaba el del kiosko?" → "el del kiosko": lo que se busca, sin la pregunta. */
 export function temaBusqueda(text: string) {
   const tema = text
@@ -129,7 +137,8 @@ function parecido(a: string, b: string) {
   return 0;
 }
 
-export type Resultado = { memoria: Memoria; puntos: number };
+/** `completa`: todas las palabras de la consulta aparecen (para borrar solo lo que es seguro). */
+export type Resultado = { memoria: Memoria; puntos: number; completa: boolean };
 
 /** Mejores coincidencias para la consulta. Vacío si no hay nada que se parezca. */
 export function buscar(consulta: string, memorias: Memoria[], max = 5): Resultado[] {
@@ -139,12 +148,14 @@ export function buscar(consulta: string, memorias: Memoria[], max = 5): Resultad
     .map((memoria) => {
       const bolsa = new Set(palabras(`${memoria.nombre} ${memoria.descripcion} ${memoria.texto}`));
       let puntos = 0;
+      let completa = true;
       for (const w of q) {
         let mejor = 0;
         for (const b of bolsa) mejor = Math.max(mejor, parecido(w, b));
         puntos += mejor;
+        if (!mejor) completa = false;
       }
-      return { memoria, puntos };
+      return { memoria, puntos, completa };
     })
     .filter((r) => r.puntos >= 1);
   if (!puntuadas.length) return [];

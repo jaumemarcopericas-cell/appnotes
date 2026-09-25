@@ -17,7 +17,17 @@ export async function resolverMemoria(c: Captura, store: MemoriaStore | null): P
     return c;
   }
 
-  const consultaCorta = c.tipo === "nota" && palabras(c.texto).length <= MAX_PALABRAS_CONSULTA;
+  if (c.tipo === "olvidar") {
+    if (!store) return { ...c, mensaje: SIN_BASE.replace("guardado", "borrado") };
+    // Solo lo que coincide en todas las palabras: "olvida a Luis" nunca se lleva a otro por parecido.
+    const aBorrar = buscar(c.titulo, await store.todas()).filter((r) => r.completa);
+    if (!aBorrar.length) return { ...c, mensaje: `🗑️ No he encontrado «${c.titulo}» para olvidarlo` };
+    for (const r of aBorrar) await store.borrar(r.memoria.id);
+    const lineas = aBorrar.map((r) => lineaMemoria(r.memoria));
+    return { ...c, items: lineas, mensaje: `🗑️ Olvidado: ${lineas.join("\n")}` };
+  }
+
+  const consultaCorta =c.tipo === "nota" && palabras(c.texto).length <= MAX_PALABRAS_CONSULTA;
   if (c.tipo !== "buscar" && !consultaCorta) return c;
   if (!store) return c.tipo === "buscar" ? { ...c, mensaje: SIN_BASE.replace("guardado", "podido buscar") } : c;
 

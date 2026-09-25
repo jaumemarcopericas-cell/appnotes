@@ -15,5 +15,6 @@ export async function probarFrase(text: string, tz?: string): Promise<RespuestaA
   const c = capture(t, { tz });
   if (c.tipo === "memoria") c.mensaje += " (en /probar no se guarda: usa el doble toque)";
   if (c.tipo === "buscar") c.mensaje = `🔎 Buscaría «${c.titulo}» en tus nombres (solo con el doble toque)`;
+  if (c.tipo === "olvidar") c.mensaje = `🗑️ Olvidaría «${c.titulo}» (solo con el doble toque)`;
   return respuestaAtajo(c);
 }

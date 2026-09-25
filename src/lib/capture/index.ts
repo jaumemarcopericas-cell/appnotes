@@ -11,7 +11,7 @@ import {
   parseTemporizador,
   TEMPORIZADOR_F,
 } from "./herramientas";
-import { esBusqueda, extraerMemoria, temaBusqueda } from "@/lib/memoria/entender";
+import { esBusqueda, extraerMemoria, temaBusqueda, temaOlvido } from "@/lib/memoria/entender";
 
 /**
  * Captura rápida en español: clasifica una frase suelta ("recuérdame llamar a mamá mañana a las 9")
@@ -35,6 +35,7 @@ export const TIPOS = {
   ruta: { emoji: "🗺️", etiqueta: "Ruta" },
   memoria: { emoji: "📇", etiqueta: "Guardado" },
   buscar: { emoji: "🔎", etiqueta: "Buscar" },
+  olvidar: { emoji: "🗑️", etiqueta: "Olvidar" },
 } as const;
 export type Tipo = keyof typeof TIPOS;
 
@@ -55,6 +56,7 @@ const ACCION: Record<Tipo, Accion> = {
   // Guardar y buscar nombres ocurre en el servidor: el Atajo solo enseña la notificación.
   memoria: "mostrar",
   buscar: "mostrar",
+  olvidar: "mostrar",
   calculo: "mostrar",
   conversion: "mostrar",
   dividir: "mostrar",
@@ -70,6 +72,7 @@ const PRIORIDAD: Tipo[] = [
   "enlace",
   "mensaje",
   "ruta",
+  "olvidar",
   "buscar",
   "memoria",
   "dividir",
@@ -293,6 +296,7 @@ export function scores(text: string, opts: CaptureOptions = {}): Record<Tipo, nu
   if (URL.test(f)) s.enlace += 10;
   if (parseMensaje(text)) s.mensaje += 9;
   if (parseRuta(text)) s.ruta += 9;
+  if (temaOlvido(text)) s.olvidar += 11;
   if (esBusqueda(text)) s.buscar += 10;
   else if (extraerMemoria(text)) s.memoria += 10;
   if (parseDivision(text)) s.dividir += 9;
@@ -377,6 +381,11 @@ export function buildCaptura(text: string, tipo: Tipo, opts: CaptureOptions & { 
       mensajeHerramienta = m ? `${emoji} Guardado: ${m.nombre} — ${m.descripcion}` : `${emoji} ${original}`;
       break;
     }
+    case "olvidar":
+      // El borrado lo hace el servidor (lib/memoria/servicio.ts), solo si todo coincide.
+      titulo = temaOlvido(original) ?? original;
+      mensajeHerramienta = `${emoji} ${titulo}`;
+      break;
     case "buscar":
       // La búsqueda de verdad la hace el servidor (lib/memoria/servicio.ts) y rellena el mensaje.
       titulo = temaBusqueda(original);

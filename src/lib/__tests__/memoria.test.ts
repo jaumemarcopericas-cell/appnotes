@@ -124,6 +124,33 @@ describe("resolverMemoria (guardar y preguntar de punta a punta)", () => {
     expect(r.mensaje).toBe("🔎 No tengo nada guardado sobre «el del kiosko»");
   });
 
+  test("olvidar borra solo lo que coincide del todo", async () => {
+    const store = new StoreEnMemoria();
+    await resolverMemoria(capture("el camarero del Bar Pepe se llama Luis", opts), store);
+    await resolverMemoria(capture("Luisa trabaja en el hotel del puerto", opts), store);
+    const r = await resolverMemoria(capture("olvida a Luis", opts), store);
+    expect(r.tipo).toBe("olvidar");
+    expect(r.mensaje).toBe("🗑️ Olvidado: Luis — camarero del Bar Pepe");
+    expect(store.datos.map((m) => m.nombre)).toEqual(["Luisa"]);
+  });
+
+  test("olvidar lo de un sitio", async () => {
+    const store = new StoreEnMemoria();
+    await resolverMemoria(capture("el camarero del Bar Pepe se llama Luis", opts), store);
+    await resolverMemoria(capture("Ana es la cocinera del Bar Pepe", opts), store);
+    await resolverMemoria(capture("en Cadaqués conocí a Joan, el del hotel", opts), store);
+    await resolverMemoria(capture("borra lo del Bar Pepe", opts), store);
+    expect(store.datos.map((m) => m.nombre)).toEqual(["Joan"]);
+  });
+
+  test("olvidar algo que no existe no borra nada", async () => {
+    const store = new StoreEnMemoria();
+    await resolverMemoria(capture("en Cadaqués conocí a Joan, el del hotel", opts), store);
+    const r = await resolverMemoria(capture("olvida a Pedro", opts), store);
+    expect(r.mensaje).toBe("🗑️ No he encontrado «Pedro» para olvidarlo");
+    expect(store.datos).toHaveLength(1);
+  });
+
   test("sin base de datos avisa en vez de fingir que guarda", async () => {
     const r = await resolverMemoria(capture("el camarero del Bar Pepe se llama Luis", opts), null);
     expect(r.mensaje).toContain("falta conectar la base de datos");
