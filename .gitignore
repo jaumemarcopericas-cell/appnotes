@@ -8,6 +8,9 @@
 /out/
 /build
 /coverage
+
+# ── Local data (memoria de nombres en desarrollo) ───────────
+/.data/
 *.tsbuildinfo
 next-env.d.ts
 

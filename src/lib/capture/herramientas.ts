@@ -6,7 +6,7 @@ import { convertValue, UNIT_LABELS } from "@/lib/parse/convert";
  * Cada parser devuelve null cuando la frase no encaja, para que la clasificación lo use como señal.
  */
 
-const fold = (s: string) =>
+export const fold = (s: string) =>
   s
     .toLowerCase()
     .normalize("NFD")

@@ -11,6 +11,7 @@ import {
   parseTemporizador,
   TEMPORIZADOR_F,
 } from "./herramientas";
+import { esBusqueda, extraerMemoria, temaBusqueda } from "@/lib/memoria/entender";
 
 /**
  * Captura rápida en español: clasifica una frase suelta ("recuérdame llamar a mamá mañana a las 9")
@@ -32,6 +33,8 @@ export const TIPOS = {
   temporizador: { emoji: "⏲️", etiqueta: "Temporizador" },
   mensaje: { emoji: "💬", etiqueta: "Mensaje" },
   ruta: { emoji: "🗺️", etiqueta: "Ruta" },
+  memoria: { emoji: "📇", etiqueta: "Guardado" },
+  buscar: { emoji: "🔎", etiqueta: "Buscar" },
 } as const;
 export type Tipo = keyof typeof TIPOS;
 
@@ -49,6 +52,9 @@ const ACCION: Record<Tipo, Accion> = {
   temporizador: "temporizador",
   mensaje: "abrir",
   ruta: "abrir",
+  // Guardar y buscar nombres ocurre en el servidor: el Atajo solo enseña la notificación.
+  memoria: "mostrar",
+  buscar: "mostrar",
   calculo: "mostrar",
   conversion: "mostrar",
   dividir: "mostrar",
@@ -64,6 +70,8 @@ const PRIORIDAD: Tipo[] = [
   "enlace",
   "mensaje",
   "ruta",
+  "buscar",
+  "memoria",
   "dividir",
   "calculo",
   "conversion",
@@ -285,6 +293,8 @@ export function scores(text: string, opts: CaptureOptions = {}): Record<Tipo, nu
   if (URL.test(f)) s.enlace += 10;
   if (parseMensaje(text)) s.mensaje += 9;
   if (parseRuta(text)) s.ruta += 9;
+  if (esBusqueda(text)) s.buscar += 10;
+  else if (extraerMemoria(text)) s.memoria += 10;
   if (parseDivision(text)) s.dividir += 9;
   if (parseCalculo(text)) s.calculo += 8;
   if (parseConversion(text)) s.conversion += 8;
@@ -360,6 +370,18 @@ export function buildCaptura(text: string, tipo: Tipo, opts: CaptureOptions & { 
         : `${emoji} ${original}`;
       break;
     }
+    case "memoria": {
+      const m = extraerMemoria(original);
+      titulo = m?.nombre ?? original;
+      resultado = m?.descripcion ?? null;
+      mensajeHerramienta = m ? `${emoji} Guardado: ${m.nombre} — ${m.descripcion}` : `${emoji} ${original}`;
+      break;
+    }
+    case "buscar":
+      // La búsqueda de verdad la hace el servidor (lib/memoria/servicio.ts) y rellena el mensaje.
+      titulo = temaBusqueda(original);
+      mensajeHerramienta = `${emoji} ${titulo}`;
+      break;
     case "ruta": {
       const r = parseRuta(original);
       url = r?.url ?? null;
